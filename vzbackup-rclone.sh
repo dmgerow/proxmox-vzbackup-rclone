@@ -17,7 +17,7 @@ rehydrate=${2} #enter the date you want to rehydrate in the following format: YY
 if [ ! -z "${3}" ];then
         CMDARCHIVE=$(echo "/${3}" | sed -e 's/\(.bin\)*$//g')
 fi
-tarfile=${TARFILE}
+tarfile=${TARGET}
 exten=${tarfile#*.}
 filename=${tarfile%.*.*}
 
@@ -82,6 +82,7 @@ if [[ ${COMMAND} == 'job-end' ||  ${COMMAND} == 'job-abort' ]]; then
     --drive-chunk-size=32M move $_filename4 gd-backup_crypt:"/$remoteroot/$timepath" \
     -v --stats=60s --transfers=16 --checkers=16
 
+    echo "reclone deleting files older that ${MAX_CLOUD_AGE} days"
     #rm -rfv $rcloneroot
     rclone --config /root/.config/rclone/rclone.conf \
         delete --min-age ${MAX_CLOUD_AGE}d gd-backup_crypt:"/$remoteroot/"
