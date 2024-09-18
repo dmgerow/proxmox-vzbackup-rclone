@@ -5,6 +5,7 @@
 dumpdir="/var/lib/vz/dump" # Set this to where your vzdump files are stored
 folder="Proxmox\ Backups" # Set this to the remote backup directory
 MAX_AGE=3 # This is the age in days to keep local backup copies. Local backups older than this are deleted.
+MAX_CLOUD_AGE=10 # This is the age in days to keep cloud backup copies. Cloud backups older than this are deleted
 ############ /END CONFIG
 
 _bdir="$dumpdir"
@@ -82,4 +83,6 @@ if [[ ${COMMAND} == 'job-end' ||  ${COMMAND} == 'job-abort' ]]; then
     -v --stats=60s --transfers=16 --checkers=16
 
     #rm -rfv $rcloneroot
+    rclone --config /root/.config/rclone/rclone.conf \
+        delete --min-age ${MAX_CLOUD_AGE}d $drive:$backups/
 fi
