@@ -2,6 +2,7 @@
 # ./vzbackup-rclone.sh rehydrate YYYY/MM/DD file_name_encrypted.bin
 
 ############ /START CONFIG
+drive="gd-backup_crypt"
 dumpdir="/var/lib/vz/dump" # Set this to where your vzdump files are stored
 remoteroot="Proxmox Backups" # Set this to the remote backup directory
 MAX_AGE=3 # This is the age in days to keep local backup copies. Local backups older than this are deleted.
@@ -26,7 +27,7 @@ if [[ ${COMMAND} == 'rehydrate' ]]; then
     #echo "For example, today would be: $timepath"
     #read -p 'Rehydrate Date => ' rehydrate
     rclone --config /root/.config/rclone/rclone.conf \
-    --drive-chunk-size=32M copy gd-backup_crypt:"/$remoteroot/$rehydrate$CMDARCHIVE" $dumpdir \
+    --drive-chunk-size=32M copy $drive:"/$remoteroot/$rehydrate$CMDARCHIVE" $dumpdir \
     -v --stats=60s --transfers=16 --checkers=16
 fi
 
@@ -42,7 +43,7 @@ if [[ ${COMMAND} == 'backup-end' ]]; then
     echo "rcloning $rclonedir"
     #ls $rclonedir
     rclone --config /root/.config/rclone/rclone.conf \
-    --drive-chunk-size=32M copy $tarfile gd-backup_crypt:"/$remoteroot/$timepath" \
+    --drive-chunk-size=32M copy $tarfile $drive:"/$remoteroot/$timepath" \
     -v --stats=60s --transfers=16 --checkers=16
 fi
 
@@ -79,11 +80,11 @@ if [[ ${COMMAND} == 'job-end' ||  ${COMMAND} == 'job-abort' ]]; then
     echo "rcloning $_filename4"
     #ls $rclonedir
     rclone --config /root/.config/rclone/rclone.conf \
-    --drive-chunk-size=32M move $_filename4 gd-backup_crypt:"/$remoteroot/$timepath" \
+    --drive-chunk-size=32M move $_filename4 $drive:"/$remoteroot/$timepath" \
     -v --stats=60s --transfers=16 --checkers=16
 
     echo "reclone deleting files older that ${MAX_CLOUD_AGE} days"
     #rm -rfv $rcloneroot
     rclone --config /root/.config/rclone/rclone.conf \
-        delete --min-age ${MAX_CLOUD_AGE}d gd-backup_crypt:"/$remoteroot/"
+        delete --min-age ${MAX_CLOUD_AGE}d $drive:"/$remoteroot/"
 fi
