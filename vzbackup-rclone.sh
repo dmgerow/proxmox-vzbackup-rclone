@@ -86,5 +86,5 @@ if [[ ${COMMAND} == 'job-end' ||  ${COMMAND} == 'job-abort' ]]; then
     echo "reclone deleting files older that ${MAX_CLOUD_AGE} days"
     #rm -rfv $rcloneroot
     rclone --config /root/.config/rclone/rclone.conf \
-        delete --min-age ${MAX_CLOUD_AGE}d $drive:"/$remoteroot/"
+        delete --drive-use-trash=false --min-age ${MAX_CLOUD_AGE}d $drive:"/$remoteroot/"
 fi
