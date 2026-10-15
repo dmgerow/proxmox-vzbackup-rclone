@@ -3,57 +3,50 @@
 
 ############ /START CONFIG
 drive="drive"
-dumpdir="/var/lib/vz/dump" # Set this to where your vzdump files are stored
+dumpdir="/mnt/Elements/dump" # Set this to where your vzdump files are stored
 remoteroot="Proxmox Backups" # Set this to the remote backup directory
-MAX_AGE=3 # This is the age in days to keep local backup copies. Local backups older than this are deleted.
-MAX_CLOUD_AGE=7 # This is the age in days to keep cloud backup copies. Cloud backups older than this are deleted
+MAX_AGE=1 # This is the age in days to keep local backup copies. Local backups older than this are deleted.
+MAX_CLOUD_AGE=21 # This is the age in days to keep cloud backup copies. Cloud backups older than this are deleted
 ############ /END CONFIG
 
+rclone_conf="/root/.config/rclone/rclone.conf"
 _bdir="$dumpdir"
-rcloneroot="$dumpdir/rclone"
 timepath="$(date +%Y)/$(date +%m)/$(date +%d)"
-rclonedir="$rcloneroot/$timepath"
 COMMAND=${1}
 rehydrate=${2} #enter the date you want to rehydrate in the following format: YYYY/MM/DD
-if [ ! -z "${3}" ];then
-        CMDARCHIVE=$(echo "/${3}" | sed -e 's/\(.bin\)*$//g')
+if [ -n "${3}" ]; then
+    CMDARCHIVE=$(echo "/${3}" | sed -e 's/\(.bin\)*$//g')
 fi
 tarfile=${TARGET}
-exten=${tarfile#*.}
-filename=${tarfile%.*.*}
 
 if [[ ${COMMAND} == 'rehydrate' ]]; then
-    #echo "Please enter the date you want to rehydrate in the following format: YYYY/MM/DD"
-    #echo "For example, today would be: $timepath"
-    #read -p 'Rehydrate Date => ' rehydrate
-    rclone --config /root/.config/rclone/rclone.conf \
-    --drive-chunk-size=32M copy $drive:"/$remoteroot/$rehydrate$CMDARCHIVE" $dumpdir \
+    rclone --config "$rclone_conf" \
+    --drive-chunk-size=32M copy "$drive:/$remoteroot/$rehydrate$CMDARCHIVE" "$dumpdir" \
     -v --stats=60s --transfers=16 --checkers=16
 fi
 
 if [[ ${COMMAND} == 'job-start' ]]; then
-    echo "Deleting backups older than $MAX_AGE days."
-    find $dumpdir -type f -mtime +$MAX_AGE -exec /bin/rm -f {} \;
+    echo "Deleting local backups older than $MAX_AGE days."
+    # Only this script's own artifacts, so nothing else stored in $dumpdir is touched.
+    find "$dumpdir" -maxdepth 1 -type f \
+        \( -name 'vzdump-*' -o -name 'proxmox_backup_*' \) \
+        -mtime +"$MAX_AGE" -print -delete
 fi
 
 if [[ ${COMMAND} == 'backup-end' ]]; then
-    echo "Backing up $tarfile to remote storage"
-    #mkdir -p $rclonedir
-    #cp -v $tarfile $rclonedir
-    echo "rcloning $rclonedir"
-    #ls $rclonedir
-    rclone --config /root/.config/rclone/rclone.conf \
-    --drive-chunk-size=32M copy $tarfile $drive:"/$remoteroot/$timepath" \
+    echo "rcloning $tarfile to $remoteroot/$timepath"
+    rclone --config "$rclone_conf" \
+    --drive-chunk-size=32M copy "$tarfile" "$drive:/$remoteroot/$timepath" \
     -v --stats=60s --transfers=16 --checkers=16
 fi
 
-if [[ ${COMMAND} == 'job-end' ||  ${COMMAND} == 'job-abort' ]]; then
+if [[ ${COMMAND} == 'job-end' || ${COMMAND} == 'job-abort' ]]; then
     echo "Backing up main PVE configs"
     _tdir=${TMP_DIR:-/var/tmp}
-    _tdir=$(mktemp -d $_tdir/proxmox-XXXXXXXX)
+    _tdir=$(mktemp -d "$_tdir/proxmox-XXXXXXXX")
     function clean_up {
         echo "Cleaning up"
-        rm -rf $_tdir
+        rm -rf "$_tdir"
     }
     trap clean_up EXIT
     _now=$(date +%Y-%m-%d.%H.%M.%S)
@@ -61,30 +54,44 @@ if [[ ${COMMAND} == 'job-end' ||  ${COMMAND} == 'job-abort' ]]; then
     _filename1="$_tdir/proxmoxetc.$_now.tar"
     _filename2="$_tdir/proxmoxpve.$_now.tar"
     _filename3="$_tdir/proxmoxroot.$_now.tar"
-    _filename4="$_tdir/proxmox_backup_"$_HOSTNAME"_"$_now".tar.gz"
+    _filename4="$_tdir/proxmox_backup_${_HOSTNAME}_${_now}.tar.gz"
 
     echo "Tar files"
     # copy key system files
     tar --warning='no-file-ignored' -cPf "$_filename1" /etc/.
     tar --warning='no-file-ignored' -cPf "$_filename2" /var/lib/pve-cluster/.
-    tar --warning='no-file-ignored' -cPf "$_filename3" /root/.
+    # /root minus credentials that would grant access to this host or the Drive itself if the
+    # Drive were compromised; rclone is re-authorised on a rebuild anyway.
+    tar --warning='no-file-ignored' --exclude='.ssh' --exclude='.config/rclone' \
+        -cPf "$_filename3" /root/.
 
     echo "Compressing files"
     # archive the copied system files
-    tar -cvzPf "$_filename4" $_tdir/*.tar
+    tar -czPf "$_filename4" "$_tdir"/*.tar
 
     # copy config archive to backup folder
-    #mkdir -p $rclonedir
-    cp -v $_filename4 $_bdir/
-    #cp -v $_filename4 $rclonedir/
+    cp -v "$_filename4" "$_bdir/"
     echo "rcloning $_filename4"
-    #ls $rclonedir
-    rclone --config /root/.config/rclone/rclone.conf \
-    --drive-chunk-size=32M move $_filename4 $drive:"/$remoteroot/$timepath" \
+    rclone --config "$rclone_conf" \
+    --drive-chunk-size=32M move "$_filename4" "$drive:/$remoteroot/$timepath" \
     -v --stats=60s --transfers=16 --checkers=16
 
-    echo "reclone deleting files older that ${MAX_CLOUD_AGE} days"
-    #rm -rfv $rcloneroot
-    rclone --config /root/.config/rclone/rclone.conf \
-        delete --drive-use-trash=false --min-age ${MAX_CLOUD_AGE}d $drive:"/$remoteroot/"
+    # Prune only after a successful job that actually landed guest backups in today's folder.
+    # Otherwise a run of failing nights would age out every good copy, permanently.
+    if [[ ${COMMAND} == 'job-end' ]]; then
+        _fresh=$(rclone --config "$rclone_conf" lsf --files-only --include 'vzdump-*' \
+            "$drive:/$remoteroot/$timepath" 2>/dev/null | wc -l)
+    else
+        _fresh=0
+    fi
+    if [[ $_fresh -gt 0 ]]; then
+        echo "rclone deleting files older than ${MAX_CLOUD_AGE} days ($_fresh fresh backups today)"
+        rclone --config "$rclone_conf" \
+            delete --drive-use-trash=false --min-age "${MAX_CLOUD_AGE}d" "$drive:/$remoteroot/"
+        echo "rclone removing empty folders"
+        rclone --config "$rclone_conf" \
+            rmdirs "$drive:/$remoteroot/" --leave-root
+    else
+        echo "Skipping cloud prune: ${COMMAND}, $_fresh guest backups in $remoteroot/$timepath"
+    fi
 fi
