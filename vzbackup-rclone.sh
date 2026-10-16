@@ -89,8 +89,11 @@ if [[ ${COMMAND} == 'job-end' || ${COMMAND} == 'job-abort' ]]; then
         rclone --config "$rclone_conf" \
             delete --drive-use-trash=false --min-age "${MAX_CLOUD_AGE}d" "$drive:/$remoteroot/"
         echo "rclone removing empty folders"
-        rclone --config "$rclone_conf" \
-            rmdirs "$drive:/$remoteroot/" --leave-root
+        # Housekeeping only: a failure here must not fail the backup job, but log it loudly.
+        if ! rclone --config "$rclone_conf" \
+            rmdirs "$drive:/$remoteroot/" --leave-root; then
+            echo "WARNING: vzbackup-rclone could not remove some empty folders in $remoteroot (non-fatal)"
+        fi
     else
         echo "Skipping cloud prune: ${COMMAND}, $_fresh guest backups in $remoteroot/$timepath"
     fi
